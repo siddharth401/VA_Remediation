@@ -1,0 +1,31 @@
+---
+- name: Core VA Remediation
+  hosts: "{{ target_hosts | default('all') }}"
+  become: yes
+  vars_files:
+    - "../customer_configs/{{ customer_config }}"
+
+  pre_tasks:
+    - name: Capture start time
+      set_fact:
+        remediation_start_time: "{{ ansible_date_time.iso8601 }}"
+
+  roles:
+    - batch_jobs
+    - custom_services  # Includes backup and stop
+    - cloud_snapshots
+    - os_patching      # Includes YUM update, Reboot, and Remove old kernels
+    - custom_services  # Includes start
+    - app_validation
+    - cron_manager     # Restores cron and executes missed jobs
+
+  post_tasks:
+    - name: Capture end time
+      set_fact:
+        remediation_end_time: "{{ ansible_date_time.iso8601 }}"
+
+    - name: Send Completion Email
+      debug:
+        msg: "Sending Completion Email for VA Remediation..."
+      # include_role:
+      #   name: email_role

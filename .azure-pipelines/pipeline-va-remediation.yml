@@ -1,0 +1,106 @@
+trigger: none # Manual trigger based on schedule
+
+parameters:
+  - name: environment
+    displayName: "Target Environment"
+    type: string
+    default: "nonprod"
+    values:
+      - prod
+      - nonprod
+  - name: cloud_provider
+    displayName: "Target Cloud"
+    type: string
+    default: "azure"
+    values:
+      - azure
+      - oci
+  - name: target_servers
+    displayName: "Target Servers (comma separated)"
+    type: string
+    default: "all"
+  - name: customer_config
+    displayName: "Customer Config YAML"
+    type: string
+
+variables:
+  # Route to the correct agent pool dynamically
+  ${{ if eq(parameters.cloud_provider, 'azure') }}:
+    poolName: 'Azure-Ansible-Pool'
+  ${{ if eq(parameters.cloud_provider, 'oci') }}:
+    poolName: 'OCI-Ansible-Pool'
+
+stages:
+
+  # ---------------------------------------------------------------------------
+  # STAGE 1: PROD PRE-PATCHING (STOP CRON)
+  # ---------------------------------------------------------------------------
+  - stage: PrePatchingProd
+    displayName: "Pre-Patching: Stop Crontab"
+    condition: and(succeeded(), eq('${{ parameters.environment }}', 'prod'))
+    jobs:
+      - job: StopCrontab
+        pool:
+          name: $(poolName)
+        steps:
+          - script: |
+              echo "Executing Ansible playbook to stop crontab on target servers..."
+              ansible-playbook -i ansible/inventories/${{ parameters.cloud_provider }}.yml \
+                ansible/playbooks/01_pre_patch_prod.yml \
+                -e target_hosts=${{ parameters.target_servers }}
+            displayName: 'Run Pre-Patching Playbook'
+
+  # ---------------------------------------------------------------------------
+  # STAGE 2: THE 1 HOUR DELAY (AGENTLESS)
+  # ---------------------------------------------------------------------------
+  - stage: DelayOneHour
+    displayName: "Wait 1 Hour (Agentless)"
+    dependsOn: PrePatchingProd
+    condition: and(succeeded(), eq('${{ parameters.environment }}', 'prod'))
+    jobs:
+      - job: Wait
+        pool: server # This implies an agentless job
+        steps:
+          - task: Delay@1
+            inputs:
+              delayForMinutes: '60'
+
+  # ---------------------------------------------------------------------------
+  # STAGE 3: MANUAL APPROVAL GATE
+  # ---------------------------------------------------------------------------
+  - stage: ApprovalGate
+    displayName: "Manual Approval"
+    dependsOn:
+      - PrePatchingProd
+      - DelayOneHour
+    # If it's nonprod, it doesn't wait for delay, it just runs
+    # If prod fails pre-patching, it will NOT run
+    condition: or(and(eq('${{ parameters.environment }}', 'prod'), succeeded('DelayOneHour')), and(eq('${{ parameters.environment }}', 'nonprod'), succeeded()))
+    jobs:
+      - job: ApprovePatching
+        pool: server # Agentless
+        steps:
+          - task: ManualValidation@0
+            inputs:
+              notifyUsers: 'admin@company.com'
+              instructions: 'Please approve the VA Remediation for servers: ${{ parameters.target_servers }} in ${{ parameters.environment }}'
+
+  # ---------------------------------------------------------------------------
+  # STAGE 4: MAIN REMEDIATION EXECUTION
+  # ---------------------------------------------------------------------------
+  - stage: MainRemediation
+    displayName: "Execute VA Remediation"
+    dependsOn: ApprovalGate
+    jobs:
+      - job: RunPatching
+        pool:
+          name: $(poolName)
+        steps:
+          - script: |
+              echo "Starting Main Remediation..."
+              ansible-playbook -i ansible/inventories/${{ parameters.cloud_provider }}.yml \
+                ansible/playbooks/02_remediation_main.yml \
+                -e target_hosts=${{ parameters.target_servers }} \
+                -e env=${{ parameters.environment }} \
+                -e customer_config=${{ parameters.customer_config }}
+            displayName: 'Run Remediation Playbook'

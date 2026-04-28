@@ -1,0 +1,12 @@
+---
+- name: Production Pre-Patching - Stop Crontab
+  hosts: "{{ target_hosts | default('all') }}"
+  become: yes
+  tasks:
+    - name: Backup crontab
+      shell: crontab -l > /tmp/crontab_backup_$(date +%F).txt
+      ignore_errors: yes
+
+    - name: Remove crontab
+      shell: crontab -r
+      ignore_errors: yes

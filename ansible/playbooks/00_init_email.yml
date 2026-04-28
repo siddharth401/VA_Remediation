@@ -1,0 +1,11 @@
+---
+- name: Initiate VA Remediation
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Send Initiation Email
+      debug:
+        msg: "Sending Initiation Email for VA Remediation..."
+      # Use your custom email role here
+      # include_role:
+      #   name: email_role
