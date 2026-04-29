@@ -87,9 +87,13 @@ stages:
     dependsOn:
       - PrePatchingProd
       - DelayOneHour
-    # If it's nonprod, it doesn't wait for delay, it just runs
-    # If prod fails pre-patching, it will NOT run
-    condition: or(and(eq('${{ parameters.environment }}', 'prod'), succeeded('DelayOneHour')), and(eq('${{ parameters.environment }}', 'nonprod'), succeeded()))
+    # If it's nonprod, the previous stages are skipped, so we must use in(dependencies...) to check the skipped state
+    # If prod, it relies on DelayOneHour succeeding
+    condition: |
+      or(
+        and(eq('${{ parameters.environment }}', 'prod'), eq(dependencies.DelayOneHour.result, 'Succeeded')),
+        and(eq('${{ parameters.environment }}', 'nonprod'), in(dependencies.DelayOneHour.result, 'Succeeded', 'Skipped'))
+      )
     jobs:
       - job: ApprovePatching
         pool: server # Agentless

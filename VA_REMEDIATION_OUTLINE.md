@@ -19,7 +19,8 @@ This document outlines the architecture and structured approach for automating V
 
 3. **Service Management (Custom / Non-Systemd):**
    - Applications like custom TomEE instances running under the `egold` user will be managed using a customer-specific YAML configuration file.
-   - The YAML will define paths to application stop/start scripts and target ports. Ansible will loop through these configurations, execute the shutdown, and wait for the ports to drop.
+   - Since an environment might have multiple servers running completely different services, the YAML config is nested by **hostname**.
+   - Ansible will use `custom_services[inventory_hostname]` to ensure a server only attempts to stop, start, and validate the specific services and URLs assigned to it.
 
 4. **Boot Volume Snapshots:**
    - We will use **Ansible Native Modules** (`azure_rm_manageddisk_snapshot` / `oci_volume_backup`) rather than Terraform. This avoids state-file management overhead for a stateless operational task.

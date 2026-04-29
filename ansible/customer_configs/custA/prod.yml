@@ -1,20 +1,23 @@
-# Example Customer Config (ansible/customer_configs/custA_prod.yml)
+# Example Customer Config (ansible/customer_configs/custA/prod.yml)
 custom_services:
-  - name: "tomee-instance-1"
-    user: "egold"
-    stop_script: "/opt/egold/tomee1/bin/shutdown.sh"
-    start_script: "/opt/egold/tomee1/bin/startup.sh"
-    port: 8080
-  - name: "tomee-instance-2"
-    user: "egold"
-    stop_script: "/opt/egold/tomee2/bin/shutdown.sh"
-    start_script: "/opt/egold/tomee2/bin/startup.sh"
-    port: 8081
+  "server1.custA.prod.internal":
+    - name: "tomee-instance-1-prod"
+      user: "egold"
+      stop_script: "/opt/egold/tomee1/bin/shutdown.sh"
+      start_script: "/opt/egold/tomee1/bin/startup.sh"
+      port: 8080
+  "server2.custA.prod.internal":
+    - name: "tomee-instance-2-prod"
+      user: "egold"
+      stop_script: "/opt/egold/tomee2/bin/shutdown.sh"
+      start_script: "/opt/egold/tomee2/bin/startup.sh"
+      port: 8081
 
 validation_urls:
-  - "http://localhost:8080/health"
-  - "http://localhost:8081/health"
+  "server1.custA.prod.internal":
+    - "http://localhost:8080/health"
+  "server2.custA.prod.internal":
+    - "http://localhost:8081/health"
 
 cloud_details:
   resource_group: "rg-custA-prod"
-  # OCI Compartment OCID or Azure Subscription details would go here
