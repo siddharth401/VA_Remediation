@@ -1,6 +1,9 @@
 trigger: none # Manual trigger based on schedule
 
 parameters:
+  - name: customer
+    displayName: "Target Customer"
+    type: string
   - name: environment
     displayName: "Target Environment"
     type: string
@@ -15,13 +18,10 @@ parameters:
     values:
       - azure
       - oci
-  - name: target_servers
-    displayName: "Target Servers (comma separated)"
+  - name: exclude_servers
+    displayName: "Exclude Servers (comma separated hostnames)"
     type: string
-    default: "all"
-  - name: customer_config
-    displayName: "Customer Config YAML"
-    type: string
+    default: "none"
 
 variables:
   # Route to the correct agent pool dynamically
@@ -45,9 +45,23 @@ stages:
         steps:
           - script: |
               echo "Executing Ansible playbook to stop crontab on target servers..."
+
+              # Safely handle spaces in comma-separated list
+              EXCLUDE_LIST="${{ parameters.exclude_servers }}"
+              EXCLUDE_LIST=$(echo "$EXCLUDE_LIST" | tr -d ' ')
+
+              # Format for Ansible (change server1,server2 to !server1:!server2)
+              if [ "$EXCLUDE_LIST" != "none" ] && [ -n "$EXCLUDE_LIST" ]; then
+                ANSIBLE_LIMIT="tag_customer_${{ parameters.customer }}:&tag_env_${{ parameters.environment }}:!${EXCLUDE_LIST//,/:\!}"
+              else
+                ANSIBLE_LIMIT="tag_customer_${{ parameters.customer }}:&tag_env_${{ parameters.environment }}"
+              fi
+
               ansible-playbook -i ansible/inventories/${{ parameters.cloud_provider }}.yml \
                 ansible/playbooks/01_pre_patch_prod.yml \
-                -e target_hosts=${{ parameters.target_servers }}
+                --limit "$ANSIBLE_LIMIT" \
+                -e customer="${{ parameters.customer }}" \
+                -e env="${{ parameters.environment }}"
             displayName: 'Run Pre-Patching Playbook'
 
   # ---------------------------------------------------------------------------
@@ -83,7 +97,7 @@ stages:
           - task: ManualValidation@0
             inputs:
               notifyUsers: 'admin@company.com'
-              instructions: 'Please approve the VA Remediation for servers: ${{ parameters.target_servers }} in ${{ parameters.environment }}'
+              instructions: 'Please approve the VA Remediation for customer: ${{ parameters.customer }} in ${{ parameters.environment }}'
 
   # ---------------------------------------------------------------------------
   # STAGE 4: MAIN REMEDIATION EXECUTION
@@ -98,9 +112,21 @@ stages:
         steps:
           - script: |
               echo "Starting Main Remediation..."
+
+              # Safely handle spaces in comma-separated list
+              EXCLUDE_LIST="${{ parameters.exclude_servers }}"
+              EXCLUDE_LIST=$(echo "$EXCLUDE_LIST" | tr -d ' ')
+
+              # Format for Ansible (change server1,server2 to !server1:!server2)
+              if [ "$EXCLUDE_LIST" != "none" ] && [ -n "$EXCLUDE_LIST" ]; then
+                ANSIBLE_LIMIT="tag_customer_${{ parameters.customer }}:&tag_env_${{ parameters.environment }}:!${EXCLUDE_LIST//,/:\!}"
+              else
+                ANSIBLE_LIMIT="tag_customer_${{ parameters.customer }}:&tag_env_${{ parameters.environment }}"
+              fi
+
               ansible-playbook -i ansible/inventories/${{ parameters.cloud_provider }}.yml \
                 ansible/playbooks/02_remediation_main.yml \
-                -e target_hosts=${{ parameters.target_servers }} \
-                -e env=${{ parameters.environment }} \
-                -e customer_config=${{ parameters.customer_config }}
+                --limit "$ANSIBLE_LIMIT" \
+                -e customer="${{ parameters.customer }}" \
+                -e env="${{ parameters.environment }}"
             displayName: 'Run Remediation Playbook'

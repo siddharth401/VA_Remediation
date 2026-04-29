@@ -1,9 +1,10 @@
 ---
 - name: Core VA Remediation
-  hosts: "{{ target_hosts | default('all') }}"
+  # Dynamic targeting passed via --limit from ADO Pipeline
+  hosts: all
   become: yes
   vars_files:
-    - "../customer_configs/{{ customer_config }}"
+    - "../customer_configs/{{ customer }}/{{ env }}.yml"
 
   pre_tasks:
     - name: Capture start time
