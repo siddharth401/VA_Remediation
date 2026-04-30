@@ -1,17 +1,4 @@
 # Example Customer Config (ansible/customer_configs/custA/nonprod.yml)
-custom_services:
-  "server1.custA.nonprod.internal":
-    - name: "tomee-instance-1-nonprod"
-      user: "egold"
-      stop_script: "/opt/egold/tomee1/bin/shutdown.sh"
-      start_script: "/opt/egold/tomee1/bin/startup.sh"
-      port: 8080
-  "server2.custA.nonprod.internal":
-    - name: "tomee-instance-2-nonprod"
-      user: "egold"
-      stop_script: "/opt/egold/tomee2/bin/shutdown.sh"
-      start_script: "/opt/egold/tomee2/bin/startup.sh"
-      port: 8081
 
 validation_urls:
   "server1.custA.nonprod.internal":

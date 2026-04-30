@@ -33,10 +33,38 @@ variables:
 stages:
 
   # ---------------------------------------------------------------------------
+  # STAGE 0: DISCOVER TARGETS (Always runs to populate Approval Gate)
+  # ---------------------------------------------------------------------------
+  - stage: DiscoverTargets
+    displayName: "Discover Target Servers"
+    jobs:
+      - job: Discover
+        pool:
+          name: $(poolName)
+        steps:
+          - script: |
+              echo "Discovering targets via Ansible dynamic inventory..."
+
+              EXCLUDE_LIST="${{ parameters.exclude_servers }}"
+              EXCLUDE_LIST=$(echo "$EXCLUDE_LIST" | tr -d ' ')
+
+              if [ "$EXCLUDE_LIST" != "none" ] && [ -n "$EXCLUDE_LIST" ]; then
+                ANSIBLE_LIMIT="tag_customer_${{ parameters.customer }}:&tag_env_${{ parameters.environment }}:!${EXCLUDE_LIST//,/:!}"
+              else
+                ANSIBLE_LIMIT="tag_customer_${{ parameters.customer }}:&tag_env_${{ parameters.environment }}"
+              fi
+
+              TARGET_SERVERS=$(ansible tag_customer_${{ parameters.customer }}:\&tag_env_${{ parameters.environment }} -i ansible/inventories/${{ parameters.cloud_provider }}.yml --limit "$ANSIBLE_LIMIT" --list-hosts | tail -n +2 | tr -d ' ' | paste -sd "," -)
+              echo "##vso[task.setvariable variable=DiscoveredServers;isOutput=true]$TARGET_SERVERS"
+            name: Discover_Step
+            displayName: 'Extract Target Hosts'
+
+  # ---------------------------------------------------------------------------
   # STAGE 1: PROD PRE-PATCHING (STOP CRON)
   # ---------------------------------------------------------------------------
   - stage: PrePatchingProd
     displayName: "Pre-Patching: Stop Crontab"
+    dependsOn: DiscoverTargets
     condition: and(succeeded(), eq('${{ parameters.environment }}', 'prod'))
     jobs:
       - job: StopCrontab
@@ -52,7 +80,7 @@ stages:
 
               # Format for Ansible (change server1,server2 to !server1:!server2)
               if [ "$EXCLUDE_LIST" != "none" ] && [ -n "$EXCLUDE_LIST" ]; then
-                ANSIBLE_LIMIT="tag_customer_${{ parameters.customer }}:&tag_env_${{ parameters.environment }}:!${EXCLUDE_LIST//,/:\!}"
+                ANSIBLE_LIMIT="tag_customer_${{ parameters.customer }}:&tag_env_${{ parameters.environment }}:!${EXCLUDE_LIST//,/:!}"
               else
                 ANSIBLE_LIMIT="tag_customer_${{ parameters.customer }}:&tag_env_${{ parameters.environment }}"
               fi
@@ -94,6 +122,9 @@ stages:
         and(eq('${{ parameters.environment }}', 'prod'), eq(dependencies.DelayOneHour.result, 'Succeeded')),
         and(eq('${{ parameters.environment }}', 'nonprod'), in(dependencies.DelayOneHour.result, 'Succeeded', 'Skipped'))
       )
+    variables:
+      # Extract the servers discovered during Stage 0
+      DISCOVERED_SERVERS: $[ stageDependencies.DiscoverTargets.Discover.outputs['Discover_Step.DiscoveredServers'] ]
     jobs:
       - job: ApprovePatching
         pool: server # Agentless
@@ -101,7 +132,7 @@ stages:
           - task: ManualValidation@0
             inputs:
               notifyUsers: 'admin@company.com'
-              instructions: 'Please approve the VA Remediation for customer: ${{ parameters.customer }} in ${{ parameters.environment }}'
+              instructions: 'Please approve the VA Remediation for customer: ${{ parameters.customer }} in ${{ parameters.environment }}. Target servers: $(DISCOVERED_SERVERS)'
 
   # ---------------------------------------------------------------------------
   # STAGE 4: MAIN REMEDIATION EXECUTION
@@ -123,7 +154,7 @@ stages:
 
               # Format for Ansible (change server1,server2 to !server1:!server2)
               if [ "$EXCLUDE_LIST" != "none" ] && [ -n "$EXCLUDE_LIST" ]; then
-                ANSIBLE_LIMIT="tag_customer_${{ parameters.customer }}:&tag_env_${{ parameters.environment }}:!${EXCLUDE_LIST//,/:\!}"
+                ANSIBLE_LIMIT="tag_customer_${{ parameters.customer }}:&tag_env_${{ parameters.environment }}:!${EXCLUDE_LIST//,/:!}"
               else
                 ANSIBLE_LIMIT="tag_customer_${{ parameters.customer }}:&tag_env_${{ parameters.environment }}"
               fi
