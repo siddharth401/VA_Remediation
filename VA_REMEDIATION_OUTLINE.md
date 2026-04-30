@@ -17,11 +17,11 @@ This document outlines the architecture and structured approach for automating V
    - **Solution:** The pipeline uses an **Agentless Job** with a "Delay" task.
    - **Flow:** Stage 1 stops the crontab -> Pipeline pauses for 1 hour (no compute cost) -> Stage 2 requests Manual Approval -> Stage 3 executes remediation.
 
-3. **Service Management via Auto-Discovery (Custom / Non-Systemd):**
-   - Applications like custom TomEE instances running under the `egold` user are highly dynamic. We will **not** use hardcoded YAML configurations.
+3. **Service Management via Auto-Discovery (GAIA Custom Framework):**
+   - Applications running under the `egold` user (specifically the GAIA framework) are highly dynamic and managed via profile aliases in `/opt/GOLD/`. We will **not** use hardcoded YAML configurations.
    - Instead, Ansible will deploy and execute a custom auto-discovery script (`scripts/manage_custom_services.sh`).
-   - **Stop Phase:** The script scans the server's profiles/aliases to locate `Multiple_Tomcat_Instances_Shutdown.sh` scripts, gracefully shuts them down, and saves the paths of the matching `_Startup.sh` scripts to a temporary state file on the server.
-   - **Start Phase:** Post-reboot, Ansible triggers the script again, which reads the saved state file and automatically starts exactly the services that were running prior to patching.
+   - **Stop Phase:** The script locates all `show_gaia` instances, changes into their directories, and executes `./show_gaia` as `egold`. It parses the output to identify active nodes (e.g., `CEN510PRD`), executes `./stop_gaia <NODE>`, and saves the directory-node mapping to a state file.
+   - **Start Phase:** Post-reboot, Ansible triggers the script again, which reads the saved state file, navigates back to the specific directories, and automatically executes `./start_gaia <NODE>`.
 
 4. **Boot Volume Snapshots:**
    - We will use **Ansible Native Modules** (`azure_rm_manageddisk_snapshot` / `oci_volume_backup`) rather than Terraform. This avoids state-file management overhead for a stateless operational task.
@@ -47,11 +47,11 @@ This document outlines the architecture and structured approach for automating V
 | 2. | All | **Handle Batch Jobs** | Ansible executes shell script: loop to check running jobs. (Prod: Wait; Non-prod: Kill). |
 | 3. | Prod | **Initiation Email** | Ansible playbook (Email Role). |
 | 4. | All | **Backup Service State** | Script auto-discovers running instances and writes state to `/tmp/va_remediation_stopped_services.txt`. |
-| 5. | All | **Stop Services** | Auto-discovery script executes `Multiple_Tomcat_Instances_Shutdown.sh`. |
+| 5. | All | **Stop Services** | Auto-discovery script parses `./show_gaia` and executes `./stop_gaia <NODE>`. |
 | 6. | All | **Clone/Snapshot Boot Volume** | Ansible Cloud Modules (Azure / OCI) using dynamic config. |
 | 7. | All | **YUM Update** | Ansible `yum` module (run as root). |
 | 8. | All | **Reboot** | Ansible `reboot` module with pre/post wait conditions. |
-| 9. | All | **Start Services** | Auto-discovery script reads state file and executes `Multiple_Tomcat_Instances_Startup.sh`. |
+| 9. | All | **Start Services** | Auto-discovery script reads state file and executes `./start_gaia <NODE>`. |
 | 10. | All | **Remove Old Kernels** | Ansible executes `package-cleanup --oldkernels --count=1` or equivalent. |
 | 11. | All | **App Validation** | Ansible `uri` module testing URLs defined in YAML. |
 | 12. | All | **Restore Cron & Missed Jobs** | Ansible restores cron. Python script identifies missed jobs & executes them. |
